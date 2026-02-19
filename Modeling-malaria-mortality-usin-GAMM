@@ -1,0 +1,125 @@
+# Load necessary libraries
+library(mgcv)
+library(dplyr)
+library(ggplot2)
+
+# Set seed for reproducibility
+set.seed(123)
+# Simulate data
+n <- 500
+data <- data.frame(
+  month = rep(1:12, length.out = n),
+  district = sample(1:5, n, replace = TRUE),
+  population = round(runif(n, min = 1000, max = 5000)),
+  rain_lag1 = runif(n, min = 0, max = 20),
+  rain_lag2 = runif(n, min = 0, max = 20),
+  temp_lag1 = runif(n, min = 15, max = 30)
+)
+
+data$deaths <- rpois(n, lambda = exp(
+  0.1 * sin(data$month * pi / 6) + 
+    0.2 * data$rain_lag2 + 
+    0.05 * data$temp_lag1 + 
+    rnorm(n, sd = 0.1) + 
+    log(data$population / 1000)
+))
+
+# Fit GAMM model
+gamm_model <- gam(
+  deaths ~ s(rain_lag1) + s(rain_lag2) + s(temp_lag1) +
+    s(month, bs = "cc") + s(district, bs = "re") +
+    offset(log(population)),
+  family = poisson(link = "log"),
+  data = data,
+  method = "REML"
+)
+
+# Prepare future data for forecasting
+newdata <- data.frame(
+  month = rep(1:12, each = 5),  
+  district = rep(1:5, times = 12),
+  population = 3000,  
+  rain_lag1 = rep(mean(data$rain_lag1), 60),  
+  rain_lag2 = rep(mean(data$rain_lag2), 60),
+  temp_lag1 = rep(mean(data$temp_lag1), 60)
+)
+
+# Forecast malaria deaths with confidence intervals
+forecast <- predict(gamm_model, newdata = newdata, type = "link", se.fit = TRUE)
+newdata$forecast_deaths <- exp(forecast$fit)
+newdata$lci <- exp(forecast$fit - 1.96 * forecast$se.fit)
+newdata$uci <- exp(forecast$fit + 1.96 * forecast$se.fit)
+
+# Visualize forecast with confidence intervals
+ggplot(newdata, aes(x = month, y = forecast_deaths, color = factor(district))) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lci, ymax = uci, fill = factor(district)), alpha = 0.2, color = NA) +
+  labs(
+    title = "Forecast Malaria Deaths with 95% CI",
+    subtitle = "By District",
+    x = "Month",
+    y = "Forecasted Deaths",
+    color = "District",
+    fill = "District"
+  ) +
+  theme_classic()
+
+####################
+#With no CI level#
+#######################
+
+# Plot forecast malaria deaths
+ggplot(newdata, aes(x = month, y = forecast_deaths, color = factor(district))) +
+  geom_line() +
+  labs(
+    title = "Forecast Malaria Deaths",
+    subtitle = "By District",
+    x = "Month",
+    y = "Forecasted Deaths",
+    color = "District"
+  ) +
+  theme_classic()
+
+residuals <- residuals(gamm_model)
+plot(residuals, main = "Residuals")
+acf(residuals, main = "ACF of Residuals")
+
+qqnorm(residuals(gamm_model))
+qqline(residuals(gamm_model), col = "red")
+
+AIC_gamm <- AIC(gamm_model)
+
+
+#########################################################################
+# MALARIA DEATHS FORECAST FOR 2027 #
+########################################################################
+
+# Prepare future data for forecasting (January 2027 to December 2027)
+newdata_2027 <- data.frame(
+  month = rep(1:12, each = 5),
+  district = rep(1:5, times = 12),
+  population = 3000,
+  rain_lag1 = rep(mean(data$rain_lag1), 60),
+  rain_lag2 = rep(mean(data$rain_lag2), 60),
+  temp_lag1 = rep(mean(data$temp_lag1), 60)
+)
+
+# Forecast malaria deaths with confidence intervals for 2027
+forecast_2027 <- predict(gamm_model, newdata = newdata_2027, type = "link", se.fit = TRUE)
+newdata_2027$forecast_deaths <- exp(forecast_2027$fit)
+newdata_2027$lci <- exp(forecast_2027$fit - 1.96 * forecast_2027$se.fit)
+newdata_2027$uci <- exp(forecast_2027$fit + 1.96 * forecast_2027$se.fit)
+
+# Visualize forecast with confidence intervals for 2027
+ggplot(newdata_2027, aes(x = month, y = forecast_deaths, color = factor(district))) +
+  geom_line() +
+  geom_ribbon(aes(ymin = lci, ymax = uci, fill = factor(district)), alpha = 0.2, color = NA) +
+  labs(
+    title = "Forecast Malaria Deaths with 95% CI (2027)",
+    subtitle = "By District",
+    x = "Month",
+    y = "Forecasted Deaths",
+    color = "District",
+    fill = "District"
+  ) +
+  theme_classic()
